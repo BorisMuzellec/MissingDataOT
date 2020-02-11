@@ -6,7 +6,7 @@
 
 ## References
 
-Muzellec B., Josse J., Boyer C., Cuturi, M.: [Missing Data Imputation using Optimal Transport]
+Muzellec B., Josse J., Boyer C., Cuturi, M.: [Missing Data Imputation using Optimal Transport](http://arxiv.org/abs/2002.03860)
 
 ## Dependencies
 - [PyTorch](https://pytorch.org/)

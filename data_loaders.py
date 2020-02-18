@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import numpy as np
-
 from sklearn.datasets import load_iris, load_wine, load_boston, fetch_california_housing
 
 import os
@@ -22,7 +20,23 @@ DATASETS = ['iris', 'wine', 'boston', 'california', 'parkinsons', \
 
 
 def dataset_loader(dataset):
+    """
+    Data loading utility for a subset of UCI ML repository datasets. Assumes 
+    datasets are located in './datasets'. If the called for dataset is not in 
+    this folder, it is downloaded from the UCI ML repo.
 
+    Parameters
+    ----------
+
+    dataset : str
+        Name of the dataset to retrieve.
+        Valid values: see DATASETS.
+        
+    Returns
+    ------
+    X : ndarray
+        Data values (predictive values only).
+    """
     assert dataset in DATASETS , f"Dataset not supported: {dataset}"
 
     if dataset in DATASETS:

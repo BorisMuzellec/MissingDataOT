@@ -4,13 +4,12 @@
 import numpy as np
 import torch
 
-import itertools
-import logging
-
 from geomloss import SamplesLoss
 
-
 from utils import mean_impute, ns_bures, moments, MAE
+
+import logging
+
 
 
 class OTimputer():
@@ -20,28 +19,73 @@ class OTimputer():
 
     Parameters
     ----------
-    eps : float, default=0.01
 
-    opt : torch.optim.Optimizer, default=torch.optim.RMSprop
+    eps: float, default=0.01
+        Sinkhorn regularization parameter.
+        
+    lr : float, default = 0.01
+        Learning rate.
 
-    loss_func : str, default="sinkhorn"
-    Valid values: {"sinkhorn" or "bures"}.
+    opt: torch.nn.optim.Optimizer, default=torch.optim.Adam
+        Optimizer class to use for fitting.
+        
+    max_iter : int, default=10
+        Maximum number of round-robin cycles for imputation.
 
-    scaling : float, default=.9
+    niter : int, default=15
+        Number of gradient updates for each model within a cycle.
+
+    batchsize : int, defatul=128
+        Size of the batches on which the sinkhorn divergence is evaluated.
+
+    n_pairs : int, default=10
+        Number of batch pairs used per gradient update.
+
+    tol : float, default = 0.001
+        Tolerance threshold for the stopping criterion.
+
+    weight_decay : float, default = 1e-5
+        L2 regularization magnitude.
+
+    order : str, default="random"
+        Order in which the variables are imputed.
+        Valid values: {"random" or "increasing"}.
+
+    unsymmetrize: bool, default=True
+        If True, sample one batch with no missing 
+        data in each pair during training.
+
+    scaling: float, default=0.9
+        Scaling parameter in Sinkhorn iterations
+        c.f. geomloss' doc: "Allows you to specify the trade-off between
+        speed (scaling < .4) and accuracy (scaling > .9)"
 
 
     """
-    def __init__(self, eps=0.01, opt=torch.optim.RMSprop,
-                 loss_func='sinkhorn', scaling = .9):
-
+    def __init__(self, 
+                 eps=0.01, 
+                 lr=1e-2, 
+                 opt=torch.optim.RMSprop, 
+                 niter = 2000, 
+                 batchsize = 128, 
+                 n_pairs = 1,
+                 noise = 0.1, 
+                 loss_func='sinkhorn', 
+                 scaling = .9):
         self.eps = eps
-        self.sk = SamplesLoss("sinkhorn", p=2, blur=eps, \
-                              scaling=scaling, backend = "tensorized")
+        self.lr = lr
         self.opt = opt
+        self.niter = niter
+        self.batchsize = batchsize
+        self.n_pairs = n_pairs
+        self.noise = noise
         self.loss_func = loss_func
 
-    def fit_transform(self, X, mask, niter = 2000, batchsize = 128, lr=1e-2,
-                     noise = 0.1, verbose = True, report_interval=500,
+        if loss_func == 'sinkhorn':
+            self.sk = SamplesLoss("sinkhorn", p=2, blur=eps, \
+                          scaling=scaling, backend = "tensorized")
+
+    def fit_transform(self, X, mask, verbose = True, report_interval=500,
                      X_true = None):
 
         """
@@ -72,42 +116,49 @@ class OTimputer():
 
         Returns
         -------
-        X_filled:
+        X_filled: torch.DoubleTensor or torch.cuda.DoubleTensor
+            Imputed missing data (plus unchanged non-missing data).
 
 
         """
-        if batchsize > len(X) // 2:
-            e = int(np.log2(len(X) // 2))
-            batchsize = 2**e
+        
+        n, d = X.shape
+        
+        if self.batchsize > n // 2:
+            e = int(np.log2(n // 2))
+            self.batchsize = 2**e
             if verbose:
-                logging.info(f"Batchsize larger that half size = {len(X) // 2}. Setting batchsize to {batchsize}.")
+                logging.info(f"Batchsize larger that half size = {len(X) // 2}. Setting batchsize to {self.batchsize}.")
 
-        NAs = noise * torch.randn(mask.shape).double() + mean_impute(X, mask)
+        NAs = self.noise * torch.randn(mask.shape).double() + mean_impute(X, mask)
         NAs.requires_grad = True
 
-        optimizer = self.opt([NAs], lr=lr)
+        optimizer = self.opt([NAs], lr=self.lr)
 
         if verbose:
-            logging.info(f"loss_func = {self.loss_func}, batchsize = {batchsize}, epsilon = {self.eps}")
+            logging.info(f"loss_func = {self.loss_func}, batchsize = {self.batchsize}, epsilon = {self.eps}")
 
 
-        for i in range(niter):
+        for i in range(self.niter):
 
             X_filled = (1 - mask) * X.detach() + mask * NAs
+            loss = 0
+            
+            for _ in range(self.n_pairs):
 
-            idx1 = np.random.choice(len(X), batchsize, replace=False)
-            idx2 = np.random.choice(len(X), batchsize, replace=False)
-
-            X1 = X_filled[idx1]
-            X2 = X_filled[idx2]
-
-            if self.loss_func == 'sinkhorn':
-                loss = self.sk(X1, X2)
-
-            elif self.loss_func == 'bures':
-                m1, C1 = moments(X1)
-                m2, C2 = moments(X2)
-                loss =  (((m1 - m2)**2).sum() + ns_bures(C1, C2))
+                idx1 = np.random.choice(n, self.batchsize, replace=False)
+                idx2 = np.random.choice(n, self.batchsize, replace=False)
+    
+                X1 = X_filled[idx1]
+                X2 = X_filled[idx2]
+    
+                if self.loss_func == 'sinkhorn':
+                    loss = loss + self.sk(X1, X2)
+    
+                elif self.loss_func == 'bures':
+                    m1, C1 = moments(X1)
+                    m2, C2 = moments(X2)
+                    loss = loss +  (((m1 - m2)**2).sum() + ns_bures(C1, C2))
 
             if torch.isnan(loss).any() or torch.isinf(loss).any():
                 ### Catch numerical errors/overflows (should not happen)
@@ -120,10 +171,13 @@ class OTimputer():
 
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info('Iteration {}:\t {}\t Validation MAE {}'.format(i, loss.item(),
-                                 MAE((1 - mask) * X.detach() + mask * NAs, X_true, mask).item()))
+                    logging.info('Iteration {}:\t {}\t Validation MAE {}'.format(i, 
+                                 loss.item() / self.n_pairs,
+                                 MAE((1 - mask) * X.detach() + \
+                                     mask * NAs, X_true, mask).item()))
                 else:
-                    logging.info('Iteration {}:\t {}'.format(i, loss.item()))
+                    logging.info('Iteration {}:\t {}'.format(i,
+                                 loss.item() / self.n_pairs))
 
         return (1 - mask) * X.detach() + mask * NAs
 
@@ -141,9 +195,38 @@ class RRimputer():
 
     eps: float, default=0.01
         Sinkhorn regularization parameter.
+        
+    lr : float, default = 0.01
+        Learning rate.
 
     opt: torch.nn.optim.Optimizer, default=torch.optim.Adam
         Optimizer class to use for fitting.
+        
+    max_iter : int, default=10
+        Maximum number of round-robin cycles for imputation.
+
+    niter : int, default=15
+        Number of gradient updates for each model within a cycle.
+
+    batchsize : int, defatul=128
+        Size of the batches on which the sinkhorn divergence is evaluated.
+
+    n_pairs : int, default=10
+        Number of batch pairs used per gradient update.
+
+    tol : float, default = 0.001
+        Tolerance threshold for the stopping criterion.
+
+    weight_decay : float, default = 1e-5
+        L2 regularization magnitude.
+
+    order : str, default="random"
+        Order in which the variables are imputed.
+        Valid values: {"random" or "increasing"}.
+
+    unsymmetrize: bool, default=True
+        If True, sample one batch with no missing 
+        data in each pair during training.
 
     scaling: float, default=0.9
         Scaling parameter in Sinkhorn iterations
@@ -151,110 +234,118 @@ class RRimputer():
         speed (scaling < .4) and accuracy (scaling > .9)"
 
     """
-    def __init__(self, models, eps= 0.01, opt=torch.optim.Adam, scaling=.9):
+    def __init__(self,
+                 models, 
+                 eps= 0.01, 
+                 lr=1e-2, 
+                 opt=torch.optim.Adam, 
+                 max_iter=10,
+                 niter=15, 
+                 batchsize=128,
+                 n_pairs=10, 
+                 tol=1e-3, 
+                 weight_decay=1e-5, 
+                 order='random',
+                 unsymmetrize=True, 
+                 scaling=.9):
 
         self.models = models
-        self.eps = eps
         self.sk = SamplesLoss("sinkhorn", p=2, blur=eps,
                               scaling=scaling, backend="auto")
+        self.lr = lr
         self.opt = opt
+        self.max_iter = max_iter
+        self.niter = niter
+        self.batchsize = batchsize
+        self.n_pairs = n_pairs
+        self.tol = tol
+        self.weight_decay=weight_decay
+        self.order=order
+        self.unsymmetrize = unsymmetrize
 
         self.is_fitted = False
 
-    def fit_transform(self, X, mask, max_iter=10, niter=15, batchsize=128,
-                      n_pairs=10, lr=1e-2, tol=1e-3, weight_decay =1e-5,
-                      unsymmetrize=True, verbose=True, report_interval=1,
-                      order='random', X_true=None):
+    def fit_transform(self, X, mask,  verbose=True, 
+                      report_interval=1, X_true=None):
         """
         Fits the imputer on a dataset with missing data, and returns the
         imputations.
 
         Parameters
         ----------
-        X:
+        X : torch.DoubleTensor or torch.cuda.DoubleTensor, shape (n, d)
+            Contains non-missing and missing data at the indices given by the
+            "mask" argument. Missing values can be arbitrarily assigned 
+            (e.g. with NaNs).
 
-        mask:
+        mask : torch.DoubleTensor or torch.cuda.DoubleTensor, shape (n, d)
+            mask[i,j] == 1 if X[i,j] is missing, else mask[i,j] == 0.
 
-        max_iter:
+        verbose : bool, default=True
+            If True, output loss to log during iterations.
+            
+        report_interval : int, default=1
+            Interval between loss reports (if verbose).
 
-        niter:
-
-        batchsize:
-
-        n_pairs:
-
-        lr:
-
-        tol:
-
-        weight_decay:
-
-        verbose: bool, default=True
-
-        order : str, default="random"
-        Valid values: {"random" or "increasing"}.
-
-        X_true:
+        X_true: torch.DoubleTensor or None, default=None
+            Ground truth for the missing values. If provided, will output a 
+            validation score during training. For debugging only.
 
         Returns
         -------
-        X_filled:
+        X_filled: torch.DoubleTensor or torch.cuda.DoubleTensor
+            Imputed missing data (plus unchanged non-missing data).
 
         """
 
         n, d = X.shape
-        normalized_tol = tol * torch.max(torch.abs(X[~mask.bool()]))
+        normalized_tol = self.tol * torch.max(torch.abs(X[~mask.bool()]))
 
-        if batchsize > n // 2:
+        if self.batchsize > n // 2:
             e = int(np.log2(n // 2))
-            batchsize = 2**e
+            self.batchsize = 2**e
             if verbose:
-                logging.info(f"Batchsize larger that half size = {len(X) // 2}. Setting batchsize to {batchsize}.")
+                logging.info(f"Batchsize larger that half size = {len(X) // 2}. Setting batchsize to {self.batchsize}.")
 
         order_ = torch.argsort(mask.sum(0))
 
         optimizers = [self.opt(self.models[i].parameters(), \
-                       lr=lr, weight_decay=weight_decay) for i in range(d)]
+                       lr=self.lr, weight_decay=self.weight_decay) 
+                        for i in range(d)]
 
         X = (1 - mask) * X + mask * mean_impute(X, mask)
-        X_fitted = X.clone()
+        X_filled = X.clone()
 
-        for i in range(max_iter):
+        for i in range(self.max_iter):
 
-            if order == 'random':
+            if self.order == 'random':
                 order_ = np.random.choice(d, d, replace=False)
-            X_old = X_fitted.clone().detach()
+            X_old = X_filled.clone().detach()
 
             for l in range(d):
 
                 j = order_[l].item()
 
-                for k in range(niter):
-
+                for k in range(self.niter):
+                    
                     loss = 0
-                    X = X_fitted.clone().detach()
-                    X_filled = X.clone()
+                    X_filled = X_filled.detach()
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
 
-                    for _ in range(n_pairs):
+                    for _ in range(self.n_pairs):
+                        
+                        idx1 = np.random.choice(n, self.batchsize, replace=False)
+                        X1 = X_filled[idx1]
 
-                        if unsymmetrize:
-
+                        if self.unsymmetrize:
                             n_miss = (~mask[:, j].bool()).sum().item()
-
-                            idx1 = np.random.choice(n, batchsize, replace=False)
-                            idx2 = np.random.choice(n_miss, batchsize, replace=False)
-
-                            X1 = X_fitted[idx1]
-                            X2 = X_fitted[~mask[:, j].bool(), :][idx2]
+                            idx2 = np.random.choice(n_miss, self.batchsize, replace=False)
+                            X2 = X_filled[~mask[:, j].bool(), :][idx2]
 
                         else:
-                            idx1 = np.random.choice(n, batchsize, replace=False)
-                            idx2 = np.random.choice(n, batchsize, replace=False)
-
-                            X1 = X_fitted[idx1]
-                            X2 = X_fitted[idx2]
+                            idx2 = np.random.choice(n, self.batchsize, replace=False)
+                            X2 = X_filled[idx2]
 
                         loss = loss + self.sk(X1, X2)
 
@@ -270,90 +361,88 @@ class RRimputer():
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info('Iteration {}:\t {}\t Validation MAE {}'.format(i,
-                                 loss.item() / n_pairs, MAE(X_fitted, X_true, mask).item()))
+                                 loss.item() / self.n_pairs, 
+                                 MAE(X_filled, X_true, mask).item()))
                 else:
                     logging.info('Iteration {}:\t {}'.format(i,
-                                 loss.item() / n_pairs))
+                                 loss.item() / self.n_pairs))
 
-            if torch.norm(X_fitted - X_old, p=np.inf) < normalized_tol:
+            if torch.norm(X_filled - X_old, p=np.inf) < normalized_tol:
                 break
 
-        if i == (max_iter - 1) and verbose:
+        if i == (self.max_iter - 1) and verbose:
             logging.info('Early stopping criterion not reached')
 
 
         self.is_fitted = True
-        self.max_iter = max_iter
-        self.order = order
 
         return X_filled
 
-    def transform(self, X, mask, max_iter=None, order=None, tol=1e-3,
-                  verbose=True, X_true=None, report_interval=1):
+    def transform(self, X, mask, verbose=True, report_interval=1,  X_true=None):
         """
+        Impute missing values on new data. Assumes models have been previously 
+        fitted on other data.
+        
         Parameters
         ----------
-        X:
+        X : torch.DoubleTensor or torch.cuda.DoubleTensor, shape (n, d)
+            Contains non-missing and missing data at the indices given by the
+            "mask" argument. Missing values can be arbitrarily assigned 
+            (e.g. with NaNs).
 
-        mask:
-
-        max_iter:
-
-        lr:
-
-        tol:
+        mask : torch.DoubleTensor or torch.cuda.DoubleTensor, shape (n, d)
+            mask[i,j] == 1 if X[i,j] is missing, else mask[i,j] == 0.
 
         verbose: bool, default=True
+            If True, output loss to log during iterations.
+            
+        report_interval : int, default=1
+            Interval between loss reports (if verbose).
 
-        order: str, default="random"
-        Valid values: {"random" or "increasing"}.
-
-        X_true:
+        X_true: torch.DoubleTensor or None, default=None
+            Ground truth for the missing values. If provided, will output a 
+            validation score during training. For debugging only.
 
         Returns
         -------
-        X_filled:
+        X_filled: torch.DoubleTensor or torch.cuda.DoubleTensor
+            Imputed missing data (plus unchanged non-missing data).
 
         """
 
         assert self.is_fitted, "The model has not been fitted yet."
 
-        ### Use the parameters used for fitting (unless stated otherwise)
-        max_iter = self.mask_iter if max_iter is None else max_iter
-        order = self.order if order is None else order
-
         n, d = X.shape
-        normalized_tol = tol * torch.max(torch.abs(X[~mask.bool()]))
-
+        normalized_tol = self.tol * torch.max(torch.abs(X[~mask.bool()]))
 
         order_ = torch.argsort(mask.sum(0))
 
         X = (1 - mask) * X + mask * mean_impute(X, mask)
-        X_fitted = X.clone()
+        X_filled = X.clone()
 
-        for i in range(max_iter):
+        for i in range(self.max_iter):
 
-            if order == 'random':
+            if self.order == 'random':
                 order_ = np.random.choice(d, d, replace=False)
-            X_old = X_fitted.clone().detach()
+            X_old = X_filled.clone().detach()
 
             for l in range(d):
 
                 j = order_[l].item()
 
                 with torch.no_grad():
-                    X_fitted[mask[:, j].bool(), j] = self.models[j](X_fitted[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
+                    X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
 
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info('Iteration {}:\t Validation MAE {}'.format(i,
-                                 MAE(X_fitted, X_true, mask).item()))
+                                 MAE(X_filled, X_true, mask).item()))
 
-            if torch.norm(X_fitted - X_old, p=np.inf) < normalized_tol:
+            if torch.norm(X_filled - X_old, p=np.inf) < normalized_tol:
                 break
 
-        if i == (max_iter - 1) and verbose:
+        if i == (self.max_iter - 1) and verbose:
             logging.info('Early stopping criterion not reached')
 
-        return X_fitted
+        return X_filled

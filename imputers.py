@@ -340,7 +340,7 @@ class RRimputer():
 
                         if self.unsymmetrize:
                             n_miss = (~mask[:, j].bool()).sum().item()
-                            idx2 = np.random.choice(n_miss, self.batchsize, replace=n_miss > self.batchsize)
+                            idx2 = np.random.choice(n_miss, self.batchsize, replace= self.batchsize > n_miss)
                             X2 = X_filled[~mask[:, j].bool(), :][idx2]
 
                         else:

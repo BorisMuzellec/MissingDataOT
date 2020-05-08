@@ -3,7 +3,6 @@
 
 import numpy as np
 import torch
-
 from geomloss import SamplesLoss
 
 from utils import mean_impute, ns_bures, moments, MAE
@@ -15,7 +14,6 @@ import logging
 class OTimputer():
     """
     'One parameter equals one imputed value' model (Algorithm 1. in the paper)
-
 
     Parameters
     ----------
@@ -94,25 +92,19 @@ class OTimputer():
         Parameters
         ----------
         X : torch.DoubleTensor or torch.cuda.DoubleTensor
+            Contains non-missing and missing data at the indices given by the
+            "mask" argument. Missing values can be arbitrarily assigned
+            (e.g. with NaNs).
 
         mask : torch.DoubleTensor or torch.cuda.DoubleTensor
-
-        niter : int, default=2000
-
-        batchsize : int, default=128
-
-        lr : float, default=0.01
-
-        tol : float, default=0.001
-
-        weight_decay : float, default=1e-5
+            mask[i,j] == 1 if X[i,j] is missing, else mask[i,j] == 0.
 
         verbose: bool, default=True
-
-        order : str, default="random"
-        Valid values: {"random" or "increasing"}.
+            If True, output loss to log during iterations.
 
         X_true: torch.DoubleTensor or None, default=None
+            Ground truth for the missing values. If provided, will output a
+            validation score during training. For debugging only.
 
         Returns
         -------
@@ -331,7 +323,6 @@ class RRimputer():
                     loss = 0
                     X_filled = X_filled.detach()
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
-
 
                     for _ in range(self.n_pairs):
                         

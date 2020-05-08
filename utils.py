@@ -29,60 +29,6 @@ def MAE(X, X_true, mask):
 def RMSE(X, X_true, mask):
     return (((X[mask.bool()] - X_true[mask.bool()])**2).sum() / mask.sum()).sqrt()
 
-
-
-##### Bures #####
-
-def moments(X):
-    m = X.mean(dim=0, keepdim=True)
-    C = (X-m).t().mm(X-m) / len(X)
-    return m, C
-
-def sqrtm(A):
-    vals, vecs = torch.symeig(A, True)
-    return (vecs * torch.sqrt(vals)).mm(vecs.t())
-
-def monge(A, B):
-    sA = sqrtm(A)
-    sA_inv = torch.inverse(sA)
-    return sA_inv.mm(sqrtm(sA.mm(B).mm(sA))).mm(sA_inv)
-
-def bures(A,B):
-    sA = sqrtm(A)
-    return torch.trace(A + B - 2 * sqrtm(sA.mm(B).mm(sA)))
-
-
-def ns_sqrtm(A, numIters=40, eps = 1e-9):
-    """
-    Newton-Schulz iterations for square root and inverse square root
-    """
-
-    dim = A.shape[1]
-    normA = 1.5 * (A**2).sum().sqrt()
-    Y = A / normA
-    I = torch.eye(dim)
-    Z = torch.eye(dim)
-    for i in range(numIters):
-        T = 0.5 * (3.0 * I - Z.matmul(Y))
-        Y = Y.matmul(T)
-        Z = T.matmul(Z)
-        sA = Y * normA.sqrt()
-        if ((sA.mm(sA) - A) ** 2).sum() < eps:
-          break
-    sAinv = Z / normA.sqrt()
-    return sA, sAinv
-
-
-def ns_bures(A, B, numIters=40, eps = 1e-12):
-    """
-    Bures distance with Newton-Schulz square root iterations
-    """
-
-    sAB, _ = ns_sqrtm(A.mm(B))
-    return torch.trace(A + B - 2 * sAB)
-
-
-
 ##################### MISSING DATA MECHANISMS #############################
 
 ##### MAR ######

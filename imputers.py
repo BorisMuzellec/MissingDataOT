@@ -5,10 +5,9 @@ import numpy as np
 import torch
 from geomloss import SamplesLoss
 
-from utils import mean_impute, ns_bures, moments, MAE
+from utils import mean_impute, MAE
 
 import logging
-
 
 
 class OTimputer():
@@ -68,7 +67,6 @@ class OTimputer():
                  batchsize = 128, 
                  n_pairs = 1,
                  noise = 0.1, 
-                 loss_func='sinkhorn', 
                  scaling = .9):
         self.eps = eps
         self.lr = lr
@@ -77,11 +75,7 @@ class OTimputer():
         self.batchsize = batchsize
         self.n_pairs = n_pairs
         self.noise = noise
-        self.loss_func = loss_func
-
-        if loss_func == 'sinkhorn':
-            self.sk = SamplesLoss("sinkhorn", p=2, blur=eps, \
-                          scaling=scaling, backend = "tensorized")
+        self.sk = SamplesLoss("sinkhorn", p=2, blur=eps, scaling=scaling, backend="tensorized")
 
     def fit_transform(self, X, mask, verbose = True, report_interval=500,
                      X_true = None):
@@ -128,8 +122,7 @@ class OTimputer():
         optimizer = self.opt([NAs], lr=self.lr)
 
         if verbose:
-            logging.info(f"loss_func = {self.loss_func}, batchsize = {self.batchsize}, epsilon = {self.eps}")
-
+            logging.info(f"batchsize = {self.batchsize}, epsilon = {self.eps:.4f}")
 
         for i in range(self.niter):
 
@@ -144,13 +137,7 @@ class OTimputer():
                 X1 = X_filled[idx1]
                 X2 = X_filled[idx2]
     
-                if self.loss_func == 'sinkhorn':
-                    loss = loss + self.sk(X1, X2)
-    
-                elif self.loss_func == 'bures':
-                    m1, C1 = moments(X1)
-                    m2, C2 = moments(X2)
-                    loss = loss +  (((m1 - m2)**2).sum() + ns_bures(C1, C2))
+                loss = loss + self.sk(X1, X2)
 
             if torch.isnan(loss).any() or torch.isinf(loss).any():
                 ### Catch numerical errors/overflows (should not happen)
@@ -163,16 +150,12 @@ class OTimputer():
 
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info('Iteration {}:\t {}\t Validation MAE {}'.format(i, 
-                                 loss.item() / self.n_pairs,
-                                 MAE((1 - mask) * X.detach() + \
-                                     mask * NAs, X_true, mask).item()))
+                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f} \t '
+                                 f'Validation MAE: {MAE((1 - mask) * X.detach() + mask * NAs, X_true, mask).item():.4f}')
                 else:
-                    logging.info('Iteration {}:\t {}'.format(i,
-                                 loss.item() / self.n_pairs))
+                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
         return (1 - mask) * X.detach() + mask * NAs
-
 
 
 class RRimputer():
@@ -297,13 +280,13 @@ class RRimputer():
             e = int(np.log2(n // 2))
             self.batchsize = 2**e
             if verbose:
-                logging.info(f"Batchsize larger that half size = {len(X) // 2}. Setting batchsize to {self.batchsize}.")
+                logging.info(f"Batchsize larger that half size = {len(X) // 2}."
+                             f" Setting batchsize to {self.batchsize}.")
 
         order_ = torch.argsort(mask.sum(0))
 
-        optimizers = [self.opt(self.models[i].parameters(), \
-                       lr=self.lr, weight_decay=self.weight_decay) 
-                        for i in range(d)]
+        optimizers = [self.opt(self.models[i].parameters(),
+                               lr=self.lr, weight_decay=self.weight_decay) for i in range(d)]
 
         X = (1 - mask) * X + mask * mean_impute(X, mask)
         X_filled = X.clone()
@@ -344,19 +327,16 @@ class RRimputer():
                     loss.backward()
                     optimizers[j].step()
 
-                ## Impute with last parameters
+                # Impute with last parameters
                 with torch.no_grad():
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
-
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info('Iteration {}:\t {}\t Validation MAE {}'.format(i,
-                                 loss.item() / self.n_pairs, 
-                                 MAE(X_filled, X_true, mask).item()))
+                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f} \t'
+                                 f' Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}')
                 else:
-                    logging.info('Iteration {}:\t {}'.format(i,
-                                 loss.item() / self.n_pairs))
+                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
             if torch.norm(X_filled - X_old, p=np.inf) < normalized_tol:
                 break
@@ -364,12 +344,11 @@ class RRimputer():
         if i == (self.max_iter - 1) and verbose:
             logging.info('Early stopping criterion not reached')
 
-
         self.is_fitted = True
 
         return X_filled
 
-    def transform(self, X, mask, verbose=True, report_interval=1,  X_true=None):
+    def transform(self, X, mask, verbose=True, report_interval=1, X_true=None):
         """
         Impute missing values on new data. Assumes models have been previously 
         fitted on other data.
@@ -424,11 +403,9 @@ class RRimputer():
                 with torch.no_grad():
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
-
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info('Iteration {}:\t Validation MAE {}'.format(i,
-                                 MAE(X_filled, X_true, mask).item()))
+                    logging.info(f'Iteration {i}:\t Validation MAE {MAE(X_filled, X_true, mask).item():.4f}')
 
             if torch.norm(X_filled - X_old, p=np.inf) < normalized_tol:
                 break

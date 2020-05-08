@@ -144,8 +144,6 @@ if __name__ == "__main__":
         data["M"].append(M.detach().cpu().numpy())
 
         ice_mean = IterativeImputer(random_state=0, max_iter=50)
-        #data_nas = copy.deepcopy(ground_truth)
-        #data_nas[data["mask"][-1] == 1] = np.nan
         data_nas = X_nas.cpu().numpy()
         ice_mean.fit(X_nas.cpu().numpy())
 
@@ -165,10 +163,12 @@ if __name__ == "__main__":
 
             logging.info(f'mean imputation:\t '
                          f'MAE: {mean_scores["MAE"][-1]:.4f}\t'
+                         f'RMSE: {mean_scores["RMSE"][-1]:.4f}\t'
                          f'OT: {mean_scores["OT"][-1]:.4f}')
         else:
             logging.info(f'mean imputation:\t '
-                         f'MAE: {mean_scores["MAE"][-1]:.4f}')
+                         f'MAE: {mean_scores["MAE"][-1]:.4f}\t'
+                         f'RMSE: {mean_scores["RMSE"][-1]:.4f}')
 
         ice_scores['MAE'].append(MAE(ice_imp, X_true, mask).cpu().numpy())
         ice_scores['RMSE'].append(RMSE(ice_imp, X_true, mask).cpu().numpy())
@@ -178,11 +178,13 @@ if __name__ == "__main__":
                                             np.ones(nimp) / nimp,
                                             dists.cpu().numpy()))
             logging.info(f'ice imputation:\t'
-                         f' MAE: {ice_scores["MAE"][-1]:.4f}\t'
-                         f' OT: {ice_scores["OT"][-1]:.4f}')
+                         f'MAE: {ice_scores["MAE"][-1]:.4f}\t'
+                         f'RMSE: {ice_scores["RMSE"][-1]:.4f}\t'
+                         f'OT: {ice_scores["OT"][-1]:.4f}')
         else:
             logging.info(f'ice imputation:\t'
-                         f' MAE: {ice_scores["MAE"][-1]:.4f}')
+                         f'MAE: {ice_scores["MAE"][-1]:.4f}\t'
+                         f'RMSE: {ice_scores["RMSE"][-1]:.4f}')
 
         cv_error, grid_lambda = cv_softimpute(data_nas, grid_len=15)
         lbda = grid_lambda[np.argmin(cv_error)]
@@ -201,11 +203,13 @@ if __name__ == "__main__":
                                                    np.ones(nimp) / nimp,
                                                    dists.cpu().numpy()))
             logging.info(f'softimpute:\t'
-                         f'MAE: {softimpute_scores["MAE"][-1]:.4f}\t '
+                         f'MAE: {softimpute_scores["MAE"][-1]:.4f}\t'
+                         f'RMSE: {softimpute_scores["RMSE"][-1]:.4f}\t'
                          f'OT: {softimpute_scores["OT"][-1]:.4f}')
         else:
             logging.info(f'softimpute:\t'
-                         f' MAE: {softimpute_scores["MAE"][-1]:.4f}')
+                         f'MAE: {softimpute_scores["MAE"][-1]:.4f}\t '
+                         f'RMSE: {softimpute_scores["RMSE"][-1]:.4f}')
 
         ### Automatic gamma
 
@@ -251,10 +255,12 @@ if __name__ == "__main__":
 
             logging.info(f"Sinkhorn imputation:\t "
                          f"MAE: {ot_scores['MAE'][-1]:.4f}\t"
+                         f"RMSE: {ot_scores['RMSE'][-1]:.4f}\t"
                          f"OT: {ot_scores['OT'][-1]:.4f}")
         else:
             logging.info(f"Sinkhorn imputation:\t "
-                         f"MAE: {ot_scores['MAE'][-1]:.4f}")
+                         f"MAE: {ot_scores['MAE'][-1]:.4f}\t"
+                         f"RMSE: {ot_scores['RMSE'][-1]:.4f}")
 
         data["imp"]["OT"].append(imps[mask.bool()].detach().cpu().numpy())
 
@@ -290,10 +296,12 @@ if __name__ == "__main__":
                                                dists.cpu().numpy()))
             logging.info(f"Linear RR imputation:\t"
                          f"MAE: {lin_rr_scores['MAE'][-1]:.4f}\t"
+                         f"RMSE: {lin_rr_scores['RMSE'][-1]:.4f}\t"
                          f"OT: {lin_rr_scores['OT'][-1]:.4f}")
         else:
             logging.info(f"Linear RR imputation:\t"
-                         f" MAE: {lin_rr_scores['MAE'][-1]:.4f}")
+                         f"MAE: {lin_rr_scores['MAE'][-1]:.4f}\t"
+                         f"RMSE: {lin_rr_scores['RMSE'][-1]:.4f}")
 
         data["imp"]["lin_rr"].append(imps[mask.bool()].detach().cpu().numpy())
 
@@ -336,10 +344,12 @@ if __name__ == "__main__":
                                                dists.cpu().numpy()))
             logging.info(f"MLP RR imputation:\t"
                          f"MAE: {mlp_rr_scores['MAE'][-1]:.4f}\t"
+                         f"RMSE: {mlp_rr_scores['RMSE'][-1]:.4f}\t"
                          f"OT: {mlp_rr_scores['OT'][-1]:.4f}")
         else:
             logging.info(f"MLP RR imputation:\t"
-                         f"MAE: {mlp_rr_scores['MAE'][-1]:.4f}")
+                         f"MAE: {mlp_rr_scores['MAE'][-1]:.4f}\t"
+                         f"RMSE: {mlp_rr_scores['RMSE'][-1]:.4f}")
 
         data["imp"]["mlp_rr"].append(imps[mask.bool()].detach().cpu().numpy())
 

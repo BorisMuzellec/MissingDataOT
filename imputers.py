@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from geomloss import SamplesLoss
 
-from utils import nanmean, MAE
+from utils import nanmean, MAE, RMSE
 
 import logging
 
@@ -150,10 +150,11 @@ class OTimputer():
             loss.backward()
             optimizer.step()
 
-            if  verbose  and (i % report_interval == 0):
+            if verbose and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f} \t '
-                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}')
+                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}\t '
+                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}\t'
+                                 f'RMSE: {RMSE(X_filled, X_true, mask).item():.4f}')
                 else:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
@@ -341,8 +342,9 @@ class RRimputer():
 
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f} \t'
-                                 f' Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}')
+                    logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}\t'
+                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}\t'
+                                 f'RMSE: {RMSE(X_filled, X_true, mask).item(): .4f}')
                 else:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
@@ -413,7 +415,9 @@ class RRimputer():
 
             if verbose and (i % report_interval == 0):
                 if X_true is not None:
-                    logging.info(f'Iteration {i}:\t Validation MAE {MAE(X_filled, X_true, mask).item():.4f}')
+                    logging.info(f'Iteration {i}:\t '
+                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}\t'
+                                 f'RMSE: {RMSE(X_filled, X_true, mask).item():.4f}')
 
             if torch.norm(X_filled - X_old, p=np.inf) < normalized_tol:
                 break

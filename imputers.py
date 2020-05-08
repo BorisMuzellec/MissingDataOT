@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from geomloss import SamplesLoss
 
-from utils import mean_impute, MAE
+from utils import nanmean, MAE
 
 import logging
 
@@ -77,7 +77,7 @@ class OTimputer():
         self.noise = noise
         self.sk = SamplesLoss("sinkhorn", p=2, blur=eps, scaling=scaling, backend="tensorized")
 
-    def fit_transform(self, X, mask, verbose = True, report_interval=500,
+    def fit_transform(self, X, verbose = True, report_interval=500,
                      X_true = None):
 
         """
@@ -116,17 +116,19 @@ class OTimputer():
             if verbose:
                 logging.info(f"Batchsize larger that half size = {len(X) // 2}. Setting batchsize to {self.batchsize}.")
 
-        NAs = self.noise * torch.randn(mask.shape).double() + mean_impute(X, mask)
-        NAs.requires_grad = True
+        mask = torch.isnan(X).double()
+        imps = (self.noise * torch.randn(mask.shape).double() + nanmean(X, 0))[mask.bool()]
+        imps.requires_grad = True
 
-        optimizer = self.opt([NAs], lr=self.lr)
+        optimizer = self.opt([imps], lr=self.lr)
 
         if verbose:
             logging.info(f"batchsize = {self.batchsize}, epsilon = {self.eps:.4f}")
 
         for i in range(self.niter):
 
-            X_filled = (1 - mask) * X.detach() + mask * NAs
+            X_filled = X.detach().clone()
+            X_filled[mask.bool()] = imps
             loss = 0
             
             for _ in range(self.n_pairs):
@@ -151,11 +153,13 @@ class OTimputer():
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f} \t '
-                                 f'Validation MAE: {MAE((1 - mask) * X.detach() + mask * NAs, X_true, mask).item():.4f}')
+                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}')
                 else:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
-        return (1 - mask) * X.detach() + mask * NAs
+        X_filled = X.detach().clone()
+        X_filled[mask.bool()] = imps
+        return X_filled
 
 
 class RRimputer():
@@ -218,7 +222,8 @@ class RRimputer():
                  niter=15, 
                  batchsize=128,
                  n_pairs=10, 
-                 tol=1e-3, 
+                 tol=1e-3,
+                 noise=0.1,
                  weight_decay=1e-5, 
                  order='random',
                  unsymmetrize=True, 
@@ -234,13 +239,14 @@ class RRimputer():
         self.batchsize = batchsize
         self.n_pairs = n_pairs
         self.tol = tol
+        self.noise = noise
         self.weight_decay=weight_decay
         self.order=order
         self.unsymmetrize = unsymmetrize
 
         self.is_fitted = False
 
-    def fit_transform(self, X, mask,  verbose=True, 
+    def fit_transform(self, X, verbose=True,
                       report_interval=1, X_true=None):
         """
         Fits the imputer on a dataset with missing data, and returns the
@@ -274,6 +280,7 @@ class RRimputer():
         """
 
         n, d = X.shape
+        mask = torch.isnan(X).double()
         normalized_tol = self.tol * torch.max(torch.abs(X[~mask.bool()]))
 
         if self.batchsize > n // 2:
@@ -288,7 +295,8 @@ class RRimputer():
         optimizers = [self.opt(self.models[i].parameters(),
                                lr=self.lr, weight_decay=self.weight_decay) for i in range(d)]
 
-        X = (1 - mask) * X + mask * mean_impute(X, mask)
+        imps = (self.noise * torch.randn(mask.shape).double() + nanmean(X, 0))[mask.bool()]
+        X[mask.bool()] = imps
         X_filled = X.clone()
 
         for i in range(self.max_iter):
@@ -387,7 +395,7 @@ class RRimputer():
 
         order_ = torch.argsort(mask.sum(0))
 
-        X = (1 - mask) * X + mask * mean_impute(X, mask)
+        X[mask] = nanmean(X)
         X_filled = X.clone()
 
         for i in range(self.max_iter):
@@ -403,7 +411,7 @@ class RRimputer():
                 with torch.no_grad():
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
-            if  verbose  and (i % report_interval == 0):
+            if verbose and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info(f'Iteration {i}:\t Validation MAE {MAE(X_filled, X_true, mask).item():.4f}')
 

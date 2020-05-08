@@ -7,13 +7,19 @@ import numpy as np
 
 ##### Mean Imputation #####
 
-def mean_impute(X, mask):
-    """
-    mask[i,j] should be 1. (or True) iff X[i,j] is missing
-    """
-    m = 1 - mask
-    return (X * m).sum(0) / m.sum(0)
+# def mean_impute(X, mask):
+#     """
+#     mask[i,j] should be 1. (or True) iff X[i,j] is missing
+#     """
+#     m = 1 - mask
+#     return (X * m).sum(0) / m.sum(0)
 
+
+def nanmean(v, *args, **kwargs):
+    v = v.clone()
+    is_nan = torch.isnan(v)
+    v[is_nan] = 0
+    return v.sum(*args, **kwargs) / (~is_nan).float().sum(*args, **kwargs)
 
 #### Quantile ######
 
@@ -39,11 +45,11 @@ def MAR_mask(X_true, p, p_obs):
 
     mask = torch.zeros(n, d).bool()
 
-    d_obs = max(int(p_obs * d), 1) ## number of variables that have no NAs
-    d_na = d - d_obs ## number of variables that have NAs
+    d_obs = max(int(p_obs * d), 1) ## number of variables that have no imps
+    d_na = d - d_obs ## number of variables that have imps
 
     ### Sample variables that will all be observed:
-    idxs_obs = np.random.choice(d, d_obs, replace=False) ### select at least one variable with no NAs
+    idxs_obs = np.random.choice(d, d_obs, replace=False) ### select at least one variable with no imps
     idxs_nas = np.array([i for i in range(d) if i not in idxs_obs])
 
     ### Other variables will have NA proportions that depend on those observed variables, through a logistic model
@@ -102,16 +108,16 @@ def MNAR_mask_logistic(X_true, p, p_params):
 
 def MNAR_mask_quantiles(X_true, p, q, p_params, cut='both', MCAR = False):
     """
-    cut can take values 'upper', 'lower' and 'both'. Determines which ends have NAs
+    cut can take values 'upper', 'lower' and 'both'. Determines which ends have imps
     """
     n, d = X_true.shape
 
     mask = torch.zeros(n, d).bool()
 
-    d_na = max(int(p_params * d), 1) ## number of variables that will have NMAR NAs
+    d_na = max(int(p_params * d), 1) ## number of variables that will have NMAR imps
 
-    ### Sample variables that will have NAs at the extremes
-    idxs_na = np.random.choice(d, d_na, replace=False) ### select at least one variable with NAs
+    ### Sample variables that will have imps at the extremes
+    idxs_na = np.random.choice(d, d_na, replace=False) ### select at least one variable with imps
 
     ### check if values are greater/smaller that corresponding Nas
 

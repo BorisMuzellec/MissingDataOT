@@ -4,31 +4,33 @@
 import torch
 import numpy as np
 
-
-##### Mean Imputation #####
-
-# def mean_impute(X, mask):
-#     """
-#     mask[i,j] should be 1. (or True) iff X[i,j] is missing
-#     """
-#     m = 1 - mask
-#     return (X * m).sum(0) / m.sum(0)
-
+# TODO: Document functions
 
 def nanmean(v, *args, **kwargs):
+    """
+
+    Parameters
+    ----------
+    v
+    args
+    kwargs
+
+    Returns
+    -------
+
+    """
     v = v.clone()
     is_nan = torch.isnan(v)
     v[is_nan] = 0
     return v.sum(*args, **kwargs) / (~is_nan).float().sum(*args, **kwargs)
 
-#### Quantile ######
 
+#### Quantile ######
 def quantile(X, q, dim=None):
     return X.kthvalue(int(q * len(X)), dim=dim)[0]
 
 
 #### Accuracy Metrics ####
-
 def MAE(X, X_true, mask):
     return torch.abs(X[mask.bool()] - X_true[mask.bool()]).sum() / mask.sum()
 
@@ -40,6 +42,18 @@ def RMSE(X, X_true, mask):
 ##### MAR ######
 
 def MAR_mask(X_true, p, p_obs):
+    """
+
+    Parameters
+    ----------
+    X_true
+    p
+    p_obs
+
+    Returns
+    -------
+
+    """
 
     n, d = X_true.shape
 
@@ -67,10 +81,21 @@ def MAR_mask(X_true, p, p_obs):
 
     return mask
 
-
 ##### MNAR ######
 
 def MNAR_mask_logistic(X_true, p, p_params):
+    """
+
+    Parameters
+    ----------
+    X_true
+    p
+    p_params
+
+    Returns
+    -------
+
+    """
 
     ### Same mechanism as logistic MAR,
     ### but the the variables of the logistic regression can now also be missing
@@ -108,7 +133,19 @@ def MNAR_mask_logistic(X_true, p, p_params):
 
 def MNAR_mask_quantiles(X_true, p, q, p_params, cut='both', MCAR = False):
     """
-    cut can take values 'upper', 'lower' and 'both'. Determines which ends have imps
+
+    Parameters
+    ----------
+    X_true
+    p
+    q
+    p_params
+    cut
+    MCAR
+
+    Returns
+    -------
+
     """
     n, d = X_true.shape
 

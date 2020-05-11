@@ -314,8 +314,8 @@ class RRimputer():
         X_filled = X.clone()
 
         if X_true is not None:
-            maes = np.zeros(self.niter)
-            rmses = np.zeros(self.niter)
+            maes = np.zeros(self.max_iter)
+            rmses = np.zeros(self.max_iter)
 
         for i in range(self.max_iter):
 

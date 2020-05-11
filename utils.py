@@ -47,10 +47,22 @@ def pick_epsilon(X, quant=0.5, mult=0.05):
 
 #### Accuracy Metrics ####
 def MAE(X, X_true, mask):
-    return torch.abs(X[mask.bool()] - X_true[mask.bool()]).sum() / mask.sum()
+    if torch.is_tensor(mask):
+        mask_ = mask.bool()
+        return torch.abs(X[mask_] - X_true[mask_]).sum() / mask_.sum()
+    else: # should be an ndarray
+        mask_ = mask.astype(bool)
+        return np.absolute(X[mask_] - X_true[mask_]).sum() / mask_.sum()
+
+
 
 def RMSE(X, X_true, mask):
-    return (((X[mask.bool()] - X_true[mask.bool()])**2).sum() / mask.sum()).sqrt()
+    if torch.is_tensor(mask):
+        mask_ = mask.bool()
+        return (((X[mask_] - X_true[mask_]) ** 2).sum() / mask_.sum()).sqrt()
+    else: # should be an ndarray
+        mask_ = mask.astype(bool)
+        return np.sqrt(((X[mask_] - X_true[mask_])**2).sum() / mask_.sum())
 
 ##################### MISSING DATA MECHANISMS #############################
 

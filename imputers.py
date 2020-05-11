@@ -106,7 +106,8 @@ class OTimputer():
 
 
         """
-        
+
+        X = X.clone()
         n, d = X.shape
         
         if self.batchsize > n // 2:
@@ -291,6 +292,7 @@ class RRimputer():
 
         """
 
+        X = X.clone()
         n, d = X.shape
         mask = torch.isnan(X).double()
         normalized_tol = self.tol * torch.max(torch.abs(X[~mask.bool()]))
@@ -321,13 +323,19 @@ class RRimputer():
                 order_ = np.random.choice(d, d, replace=False)
             X_old = X_filled.clone().detach()
 
-            for l in range(d):
+            loss = 0
 
+            for l in range(d):
                 j = order_[l].item()
+                n_not_miss = (~mask[:, j].bool()).sum().item()
+
+                if n - n_not_miss == 0:
+                    continue  # no missing value on that coordinate
 
                 for k in range(self.niter):
-                    
+
                     loss = 0
+
                     X_filled = X_filled.detach()
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
@@ -359,7 +367,7 @@ class RRimputer():
                 maes[i] = MAE(X_filled, X_true, mask).item()
                 rmses[i] = RMSE(X_filled, X_true, mask).item()
 
-            if  verbose  and (i % report_interval == 0):
+            if verbose and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}\t'
                                  f'Validation MAE: {maes[i]:.4f}\t'

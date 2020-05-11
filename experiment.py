@@ -17,7 +17,7 @@ from sklearn.preprocessing import scale
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
-from utils import MAE, RMSE, quantile, MAR_mask, MNAR_mask_logistic, MNAR_mask_quantiles, nanmean
+from utils import *
 from softimpute import softimpute, cv_softimpute
 from data_loaders import dataset_loader
 from imputers import OTimputer, RRimputer
@@ -47,13 +47,13 @@ parser.add_argument('--rr_niter', type=int, default=15,
                     help='number of GD iterations (round robin)')
 parser.add_argument('--n_pairs', type=int, default=10,
                     help='number of pairs batches to sample (round robin)')
-parser.add_argument('-g', '--gamma', type=float, default=None,
+parser.add_argument('-e', '--epsilon', type=float, default=None,
                     help='Sinkhorn regularization parameter. '
                          'Automatically select using median distance by default')
 parser.add_argument('--quantile', type=float, default=.5,
-                    help='distance quantile to select gamma')
+                    help='distance quantile to select epsilon')
 parser.add_argument('-qm', '--quantile_multiplier', type=float, default=0.05,
-                    help='distance quantile x multiplier =  gamma')
+                    help='distance quantile x multiplier =  epsilon')
 parser.add_argument('--nexp', type=int, default=1,
                     help='number of experiences per parameter setting')
 parser.add_argument('--dataset', type=str, default="iris",
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     p = args.p
 
     data = {"p": p, "ground_truth": ground_truth, "mask": [], "M": [],
-            "gamma": [], "imp": {}, "params": vars(args)}
+            "epsilon": [], "imp": {}, "params": vars(args)}
 
     for meth in METHODS:
         data["imp"][meth] = []
@@ -211,44 +211,33 @@ if __name__ == "__main__":
                          f'MAE: {softimpute_scores["MAE"][-1]:.4f}\t '
                          f'RMSE: {softimpute_scores["RMSE"][-1]:.4f}')
 
-        ### Automatic gamma
+        ### Automatic epsilon
 
         if args.quantile is not None:
-
-            imps = 0.1 * torch.randn(mask.shape).double() + nanmean(X_nas)
-            X_ = (1 - mask) * X_true + mask * imps
-            idx = np.random.choice(len(X_), min(2000, len(X_)), replace=False)
-            X = X_[idx]
-            dists = ((X[:, None] - X) ** 2).sum(2).flatten() / 2.
-            dists = dists[dists > 0]
-            gamma = quantile(dists, args.quantile, 0).item() * args.quantile_multiplier
-            logging.info(f"epsilon: {gamma:.4f} "
+            epsilon = pick_epsilon(X_nas, args.quantile, args.quantile_multiplier)
+            logging.info(f"epsilon: {epsilon:.4f} "
                          f"({100 * args.quantile}th percentile times "
                          f"{args.quantile_multiplier})")
 
         else:
-            gamma = args.gamma
-            logging.info(f"epsilon: {gamma:.4f} (fixed)")
+            epsilon = args.epsilon
+            logging.info(f"epsilon: {epsilon:.4f} (fixed)")
 
-        data["gamma"].append(gamma)
+        data["epsilon"].append(epsilon)
 
         logging.info("Sinkhorn Imputation")
 
-        sk = SamplesLoss("sinkhorn", p=2, blur=gamma, scaling=.9, backend="tensorized")
+        sk = SamplesLoss("sinkhorn", p=2, blur=epsilon, scaling=.9, backend="tensorized")
 
-        sk_imputer = OTimputer(eps=gamma, niter=args.niter, batchsize=batchsize, lr=args.lr)
+        sk_imputer = OTimputer(eps=epsilon, niter=args.niter, batchsize=batchsize, lr=args.lr)
 
-        # X = sk_imputer.fit_transform(X.clone(), mask,
-        #                              report_interval=args.report_interval,
-        #                              verbose=True, X_true=X_true).detach()
-
-        X = sk_imputer.fit_transform(X_nas.clone(), report_interval=args.report_interval,
+        sk_imp = sk_imputer.fit_transform(X_nas.clone(), report_interval=args.report_interval,
                                      verbose=True, X_true=X_true).detach()
 
-        ot_scores['MAE'].append(MAE(X, X_true, mask).item())
-        ot_scores['RMSE'].append(RMSE(X, X_true, mask).item())
+        ot_scores['MAE'].append(MAE(sk_imp, X_true, mask).item())
+        ot_scores['RMSE'].append(RMSE(sk_imp, X_true, mask).item())
         if nimp < OTLIM:
-            dists = ((X[M][:, None] - X_true[M]) ** 2).sum(2) / 2.
+            dists = ((sk_imp[M][:, None] - X_true[M]) ** 2).sum(2) / 2.
             ot_scores['OT'].append(ot.emd2(np.ones(nimp) / nimp,
                                            np.ones(nimp) / nimp, \
                                            dists.cpu().numpy()))
@@ -262,7 +251,7 @@ if __name__ == "__main__":
                          f"MAE: {ot_scores['MAE'][-1]:.4f}\t"
                          f"RMSE: {ot_scores['RMSE'][-1]:.4f}")
 
-        data["imp"]["OT"].append(imps[mask.bool()].detach().cpu().numpy())
+        data["imp"]["OT"].append(sk_imp[mask.bool()].detach().cpu().numpy())
 
         logging.info("Linear Round Robin Imputation")
 
@@ -281,16 +270,16 @@ if __name__ == "__main__":
                                       lr=args.lr,
                                       weight_decay=args.decay,
                                       order="random",
-                                      eps=gamma,
+                                      eps=epsilon,
                                       opt=torch.optim.Adam,
                                       scaling=args.scaling)
 
-        X = linear_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true).detach()
+        lin_imp = linear_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true).detach()
 
-        lin_rr_scores['MAE'].append(MAE(X, X_true, mask).item())
-        lin_rr_scores['RMSE'].append(RMSE(X, X_true, mask).item())
+        lin_rr_scores['MAE'].append(MAE(lin_imp, X_true, mask).item())
+        lin_rr_scores['RMSE'].append(RMSE(lin_imp, X_true, mask).item())
         if nimp < OTLIM:
-            dists = ((X[M][:, None] - X_true[M]) ** 2).sum(2) / 2.
+            dists = ((lin_imp[M][:, None] - X_true[M]) ** 2).sum(2) / 2.
             lin_rr_scores['OT'].append(ot.emd2(np.ones(nimp) / nimp,
                                                np.ones(nimp) / nimp,
                                                dists.cpu().numpy()))
@@ -303,7 +292,7 @@ if __name__ == "__main__":
                          f"MAE: {lin_rr_scores['MAE'][-1]:.4f}\t"
                          f"RMSE: {lin_rr_scores['RMSE'][-1]:.4f}")
 
-        data["imp"]["lin_rr"].append(imps[mask.bool()].detach().cpu().numpy())
+        data["imp"]["lin_rr"].append(lin_imp[mask.bool()].detach().cpu().numpy())
 
         logging.info("MLP Round Robin Imputation")
 
@@ -329,16 +318,16 @@ if __name__ == "__main__":
                                    lr=args.lr,
                                    weight_decay=args.decay,
                                    order="random",
-                                   eps=gamma,
+                                   eps=epsilon,
                                    opt=torch.optim.Adam,
                                    scaling=args.scaling)
 
-        X = mlp_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true).detach()
+        mlp_imp = mlp_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true).detach()
 
-        mlp_rr_scores['MAE'].append(MAE(X, X_true, mask).item())
-        mlp_rr_scores['RMSE'].append(RMSE(X, X_true, mask).item())
+        mlp_rr_scores['MAE'].append(MAE(mlp_imp, X_true, mask).item())
+        mlp_rr_scores['RMSE'].append(RMSE(mlp_imp, X_true, mask).item())
         if nimp < OTLIM:
-            dists = ((X[M][:, None] - X_true[M]) ** 2).sum(2) / 2.
+            dists = ((mlp_imp[M][:, None] - X_true[M]) ** 2).sum(2) / 2.
             mlp_rr_scores['OT'].append(ot.emd2(np.ones(nimp) / nimp,
                                                np.ones(nimp) / nimp,
                                                dists.cpu().numpy()))
@@ -351,7 +340,7 @@ if __name__ == "__main__":
                          f"MAE: {mlp_rr_scores['MAE'][-1]:.4f}\t"
                          f"RMSE: {mlp_rr_scores['RMSE'][-1]:.4f}")
 
-        data["imp"]["mlp_rr"].append(imps[mask.bool()].detach().cpu().numpy())
+        data["imp"]["mlp_rr"].append(mlp_imp[mask.bool()].detach().cpu().numpy())
 
     scores = {}
     scores['OT'] = ot_scores

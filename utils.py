@@ -30,6 +30,21 @@ def quantile(X, q, dim=None):
     return X.kthvalue(int(q * len(X)), dim=dim)[0]
 
 
+#### Automatic selection of the regularization parameter ####
+def pick_epsilon(X, quant=0.5, mult=0.05):
+    means = nanmean(X, 0)
+    X_ = X.clone()
+    mask = torch.isnan(X_)
+    X_[mask] = (mask * means)[mask]
+
+    idx = np.random.choice(len(X_), min(2000, len(X_)), replace=False)
+    X = X_[idx]
+    dists = ((X[:, None] - X) ** 2).sum(2).flatten() / 2.
+    dists = dists[dists > 0]
+
+    return quantile(dists, quant, 0).item() * mult
+
+
 #### Accuracy Metrics ####
 def MAE(X, X_true, mask):
     return torch.abs(X[mask.bool()] - X_true[mask.bool()]).sum() / mask.sum()

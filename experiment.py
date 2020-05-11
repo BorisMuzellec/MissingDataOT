@@ -227,12 +227,11 @@ if __name__ == "__main__":
 
         logging.info("Sinkhorn Imputation")
 
-        sk = SamplesLoss("sinkhorn", p=2, blur=epsilon, scaling=.9, backend="tensorized")
-
         sk_imputer = OTimputer(eps=epsilon, niter=args.niter, batchsize=batchsize, lr=args.lr)
 
-        sk_imp = sk_imputer.fit_transform(X_nas.clone(), report_interval=args.report_interval,
-                                     verbose=True, X_true=X_true).detach()
+        sk_imp, _, _ = sk_imputer.fit_transform(X_nas.clone(), report_interval=args.report_interval,
+                                     verbose=True, X_true=X_true)
+        sk_imp = sk_imp.detach()
 
         ot_scores['MAE'].append(MAE(sk_imp, X_true, mask).item())
         ot_scores['RMSE'].append(RMSE(sk_imp, X_true, mask).item())
@@ -274,7 +273,8 @@ if __name__ == "__main__":
                                       opt=torch.optim.Adam,
                                       scaling=args.scaling)
 
-        lin_imp = linear_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true).detach()
+        lin_imp, _, _ = linear_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true)
+        lin_imp = lin_imp.detach()
 
         lin_rr_scores['MAE'].append(MAE(lin_imp, X_true, mask).item())
         lin_rr_scores['RMSE'].append(RMSE(lin_imp, X_true, mask).item())
@@ -322,7 +322,8 @@ if __name__ == "__main__":
                                    opt=torch.optim.Adam,
                                    scaling=args.scaling)
 
-        mlp_imp = mlp_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true).detach()
+        mlp_imp, _, _ = mlp_rr_imputer.fit_transform(X_nas.clone(), report_interval=1, verbose=True, X_true=X_true)
+        mlp_imp = mlp_imp.detach()
 
         mlp_rr_scores['MAE'].append(MAE(mlp_imp, X_true, mask).item())
         mlp_rr_scores['RMSE'].append(RMSE(mlp_imp, X_true, mask).item())

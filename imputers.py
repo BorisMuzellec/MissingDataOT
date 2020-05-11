@@ -63,11 +63,11 @@ class OTimputer():
                  eps=0.01, 
                  lr=1e-2, 
                  opt=torch.optim.RMSprop, 
-                 niter = 2000, 
-                 batchsize = 128, 
-                 n_pairs = 1,
-                 noise = 0.1, 
-                 scaling = .9):
+                 niter=2000,
+                 batchsize=128,
+                 n_pairs=1,
+                 noise=0.1,
+                 scaling=.9):
         self.eps = eps
         self.lr = lr
         self.opt = opt
@@ -77,9 +77,7 @@ class OTimputer():
         self.noise = noise
         self.sk = SamplesLoss("sinkhorn", p=2, blur=eps, scaling=scaling, backend="tensorized")
 
-    def fit_transform(self, X, verbose = True, report_interval=500,
-                     X_true = None):
-
+    def fit_transform(self, X, verbose=True, report_interval=500, X_true=None):
         """
         Imputes missing values using a batched OT loss
 
@@ -98,7 +96,8 @@ class OTimputer():
 
         X_true: torch.DoubleTensor or None, default=None
             Ground truth for the missing values. If provided, will output a
-            validation score during training. For debugging only.
+            validation score during training, and return score arrays.
+            For validation/debugging only.
 
         Returns
         -------
@@ -125,6 +124,10 @@ class OTimputer():
         if verbose:
             logging.info(f"batchsize = {self.batchsize}, epsilon = {self.eps:.4f}")
 
+        if X_true is not None:
+            maes = np.zeros(self.niter)
+            rmses = np.zeros(self.niter)
+
         for i in range(self.niter):
 
             X_filled = X.detach().clone()
@@ -150,17 +153,25 @@ class OTimputer():
             loss.backward()
             optimizer.step()
 
+            if X_true is not None:
+                maes[i] = MAE(X_filled, X_true, mask).item()
+                rmses[i] = RMSE(X_filled, X_true, mask).item()
+
             if verbose and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}\t '
-                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}\t'
-                                 f'RMSE: {RMSE(X_filled, X_true, mask).item():.4f}')
+                                 f'Validation MAE: {maes[i]:.4f}\t'
+                                 f'RMSE: {rmses[i]:.4f}')
                 else:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
         X_filled = X.detach().clone()
         X_filled[mask.bool()] = imps
-        return X_filled
+
+        if X_true is not None:
+            return X_filled, maes, rmses
+        else:
+            return X_filled
 
 
 class RRimputer():
@@ -300,6 +311,10 @@ class RRimputer():
         X[mask.bool()] = imps
         X_filled = X.clone()
 
+        if X_true is not None:
+            maes = np.zeros(self.niter)
+            rmses = np.zeros(self.niter)
+
         for i in range(self.max_iter):
 
             if self.order == 'random':
@@ -340,11 +355,15 @@ class RRimputer():
                 with torch.no_grad():
                     X_filled[mask[:, j].bool(), j] = self.models[j](X_filled[mask[:, j].bool(), :][:, np.r_[0:j, j+1: d]]).squeeze()
 
+            if X_true is not None:
+                maes[i] = MAE(X_filled, X_true, mask).item()
+                rmses[i] = RMSE(X_filled, X_true, mask).item()
+
             if  verbose  and (i % report_interval == 0):
                 if X_true is not None:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}\t'
-                                 f'Validation MAE: {MAE(X_filled, X_true, mask).item():.4f}\t'
-                                 f'RMSE: {RMSE(X_filled, X_true, mask).item(): .4f}')
+                                 f'Validation MAE: {maes[i]:.4f}\t'
+                                 f'RMSE: {rmses[i]: .4f}')
                 else:
                     logging.info(f'Iteration {i}:\t Loss: {loss.item() / self.n_pairs:.4f}')
 
@@ -356,7 +375,10 @@ class RRimputer():
 
         self.is_fitted = True
 
-        return X_filled
+        if X_true is not None:
+            return X_filled, maes, rmses
+        else:
+            return X_filled
 
     def transform(self, X, mask, verbose=True, report_interval=1, X_true=None):
         """

@@ -10,11 +10,13 @@ This repository complements the paper [Missing Data Imputation using Optimal Tra
 - `utils.py` contains methods of general utility, and the implementation of MAR and MNAR missing data mechanisms in particular;
 - `softimpute.py` contains the implementation of the softimpute baseline.
 
+An example notebook is also available: `UCI_demo.ipynb`.
 ## References
 
 Muzellec B., Josse J., Boyer C., Cuturi, M.: [Missing Data Imputation using Optimal Transport](http://arxiv.org/abs/2002.03860)
 
 ## Dependencies
+- Python 3+
 - [PyTorch](https://pytorch.org/)
 - [GeomLoss](https://www.kernel-operations.io/geomloss/)
 - [POT](https://pot.readthedocs.io/en/stable/)

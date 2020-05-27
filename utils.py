@@ -4,6 +4,8 @@
 import torch
 import numpy as np
 
+from scipy import optimize
+
 def nanmean(v, *args, **kwargs):
     """
     A Pytorch version on Numpy's nanmean
@@ -176,12 +178,12 @@ def MAR_mask(X, p, p_obs):
     ### Other variables will have NA proportions that depend on those observed variables, through a logistic model
     ### The parameters of this logistic model are random.
 
-    coeffs = torch.randn((d_obs, d_na))
-    intercepts = torch.randn(d_na)
+    ### Pick coefficients so that W^Tx has unit variance (avoids shrinking)
+    coeffs = pick_coeffs(X, idxs_obs, idxs_nas)
+    ### Pick the intercepts to have a desired amount of missing values
+    intercepts = fit_intercepts(X[:, idxs_obs], coeffs, p)
 
     ps = torch.sigmoid(X[:, idxs_obs].mm(coeffs) + intercepts)
-    ### Rescale to have a desired amount of missing values
-    ps /= (ps.mean(0) / p)
 
     ber = torch.rand(n, d_na)
     mask[:, idxs_nas] = ber < ps
@@ -228,12 +230,13 @@ def MNAR_mask_logistic(X, p, p_params):
 
     ### Other variables will have NA proportions that depend on those observed variables, through a logistic model
     ### The parameters of this logistic model are random.
-    coeffs = torch.randn((d_params, d_na))
-    intercepts = torch.randn(d_na)
+
+    ### Pick coefficients so that W^Tx has unit variance (avoids shrinking)
+    coeffs = pick_coeffs(X, idxs_params, idxs_nas)
+    ### Pick the intercepts to have a desired amount of missing values
+    intercepts = fit_intercepts(X[:, idxs_params], coeffs, p)
 
     ps = torch.sigmoid(X[:, idxs_params].mm(coeffs) + intercepts)
-    ### Rescale to have a desired amount of missing values
-    ps /= (ps.mean(0) / p)
 
     ber = torch.rand(n, d_na)
     mask[:, idxs_nas] = ber < ps
@@ -268,10 +271,13 @@ def MNAR_self_mask_logistic(X, p):
     n, d = X.shape
     mask = torch.zeros(n, d).bool()
 
-    ### Other variables will have NA proportions that depend on those observed variables, through a logistic model
+    ### Variables will have NA proportions that depend on those observed variables, through a logistic model
     ### The parameters of this logistic model are random.
-    coeffs = torch.randn((d, d))
-    intercepts = torch.randn(d)
+
+    ### Pick coefficients so that W^Tx has unit variance (avoids shrinking)
+    coeffs = pick_coeffs(X, np.arange(d), np.arange(d))
+    ### Pick the intercepts to have a desired amount of missing values
+    intercepts = fit_intercepts(X, coeffs, p)
 
     ps = torch.sigmoid(X.mm(coeffs) + intercepts)
     ### Rescale to have a desired amount of missing values
@@ -346,3 +352,24 @@ def MNAR_mask_quantiles(X, p, q, p_params, cut='both', MCAR=False):
         mask = mask | (torch.rand(n, d) < p)
 
     return mask
+
+
+def pick_coeffs(X, idxs_obs, idxs_nas):
+    n, d = X.shape
+    d_obs = len(idxs_obs)
+    d_na = len(idxs_nas)
+    coeffs = torch.randn(d_obs, d_na)
+    Wx = X[:, idxs_obs].mm(coeffs)
+    coeffs /= torch.std(Wx, 0, keepdim=True)
+    return coeffs
+
+
+def fit_intercepts(X, coeffs, p):
+    d_obs, d_na = coeffs.shape
+    intercepts = torch.zeros(d_na)
+    for j in range(d_na):
+        def f(x):
+            return torch.sigmoid(X.mv(coeffs[:, j]) + x).mean().item() - p
+        intercepts[j] = optimize.bisect(f, -50, 50)
+    return intercepts
+

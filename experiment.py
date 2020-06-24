@@ -64,7 +64,7 @@ parser.add_argument('--p_obs', type=float, default=0.3,
                     help='Proportion of variables that are fully observed (MAR & MNAR model)')
 parser.add_argument('--MNAR_log', action='store_true')
 parser.add_argument('--MNAR_quant', action='store_true')
-parser.add_argument('--q_mnar', type=float, default=0.25,
+parser.add_argument('--q_mnar', type=float, default=0.75,
                     help='quantile that will have imps (MNAR quantiles model)')
 parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--report_interval', type=int, default=500)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
             mask = MNAR_mask_logistic(X_true, p, args.p_obs).double()
         elif args.MNAR_quant:
             logging.info("Quantile MNAR")
-            mask = MNAR_mask_quantiles(X_true, p, args.q_mnar, args.p_obs,
+            mask = MNAR_mask_quantiles(X_true, p, args.q_mnar, 1-args.p_obs,
                                        cut='both', MCAR=False).double()
         else:
             mask = (torch.rand(ground_truth.shape) < p).double()

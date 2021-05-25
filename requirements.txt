@@ -1,0 +1,6 @@
+torch
+geomloss
+pot
+scikit-learn
+pandas
+wget

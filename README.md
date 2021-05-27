@@ -15,6 +15,17 @@ An example notebook is also available: `UCI_demo.ipynb`.
 
 Muzellec B., Josse J., Boyer C., Cuturi, M.: [Missing Data Imputation using Optimal Transport](http://arxiv.org/abs/2002.03860)
 
+```
+@inproceedings{muzellec2020missing,
+  title={Missing Data Imputation using Optimal Transport},
+  author={Muzellec, Boris and Josse, Julie and Boyer, Claire and Cuturi, Marco},
+  booktitle={International Conference on Machine Learning},
+  pages={7130--7140},
+  year={2020},
+  organization={PMLR}
+}
+```
+
 ## Dependencies
 - Python 3+
 - [PyTorch](https://pytorch.org/)
